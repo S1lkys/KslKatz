@@ -224,7 +224,65 @@ DriverState setup_ksld() {
                 throw std::runtime_error(std::format("CreateService failed: {}", GetLastError()));
             }
             state.service_was_created = true;
-            std::cout << "  Created KslD service\n";
+            if (state.service_was_created) {
+                std::cout << "  Created KslD service\n";
+
+                HKEY hk = nullptr;
+
+                // Fix ErrorControl (CreateServiceW sets 1, driver expects 0)
+                if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+                    L"SYSTEM\\CurrentControlSet\\Services\\KslD",
+                    0, KEY_SET_VALUE, &hk) == ERROR_SUCCESS) {
+
+                    DWORD err_ctrl = 0;
+                    RegSetValueExW(hk, L"ErrorControl", 0, REG_DWORD,
+                        reinterpret_cast<const BYTE*>(&err_ctrl), sizeof(DWORD));
+
+                    const wchar_t version[] = L"1.1.24110.64078";
+                    RegSetValueExW(hk, L"Version", 0, REG_SZ,
+                        reinterpret_cast<const BYTE*>(version), sizeof(version));
+
+                    const wchar_t dev_name[] = L"KslD";
+                    RegSetValueExW(hk, L"DeviceName", 0, REG_SZ,
+                        reinterpret_cast<const BYTE*>(dev_name), sizeof(dev_name));
+
+                    const wchar_t tdt[] = L"TDT";
+                    RegSetValueExW(hk, L"DeviceNameTdt", 0, REG_SZ,
+                        reinterpret_cast<const BYTE*>(tdt), sizeof(tdt));
+
+                    const wchar_t silo[] = L"stable";
+                    RegSetValueExW(hk, L"Silo", 0, REG_SZ,
+                        reinterpret_cast<const BYTE*>(silo), sizeof(silo));
+
+                    RegCloseKey(hk);
+                }
+
+                // Parameters: WppRecorder trace GUID
+                if (RegCreateKeyExW(HKEY_LOCAL_MACHINE,
+                    L"SYSTEM\\CurrentControlSet\\Services\\KslD\\Parameters",
+                    0, nullptr, 0, KEY_SET_VALUE, nullptr, &hk, nullptr) == ERROR_SUCCESS) {
+                    const wchar_t guid[] = L"{70306dd4-26f5-4e78-af1e-caacf226f683}";
+                    RegSetValueExW(hk, L"WppRecorder_TraceGuid", 0, REG_SZ,
+                        reinterpret_cast<const BYTE*>(guid), sizeof(guid));
+                    RegCloseKey(hk);
+                }
+
+                // Parameters\Wdf: KMDF loader version
+                if (RegCreateKeyExW(HKEY_LOCAL_MACHINE,
+                    L"SYSTEM\\CurrentControlSet\\Services\\KslD\\Parameters\\Wdf",
+                    0, nullptr, 0, KEY_SET_VALUE, nullptr, &hk, nullptr) == ERROR_SUCCESS) {
+                    DWORD major = 1, minor = 15;
+                    RegSetValueExW(hk, L"WdfMajorVersion", 0, REG_DWORD,
+                        reinterpret_cast<const BYTE*>(&major), sizeof(DWORD));
+                    RegSetValueExW(hk, L"WdfMinorVersion", 0, REG_DWORD,
+                        reinterpret_cast<const BYTE*>(&minor), sizeof(DWORD));
+                    RegCloseKey(hk);
+                }
+
+                std::cout << "  Configured KMDF and driver parameters\n";
+            }
+
+
         } else {
             CloseServiceHandle(scm);
             throw std::runtime_error(std::format("OpenService failed: {}", GetLastError()));
